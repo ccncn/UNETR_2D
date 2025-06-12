@@ -5,6 +5,25 @@
 from math import log2
 from tensorflow.keras import Model, layers
 from .modules import *
+from tensorflow.keras import layers
+
+def attention_gate(x_skip, g_input, filters):
+    """
+    Attention Gate for UNet skip connection
+    - x_skip: skip connection from encoder
+    - g_input: gating signal from decoder (e.g., current upsampled output)
+    """
+    theta_x = layers.Conv2D(filters, (1, 1), strides=1, padding='same')(x_skip)
+    phi_g = layers.Conv2D(filters, (1, 1), strides=1, padding='same')(g_input)
+    
+    add = layers.Add()([theta_x, phi_g])
+    act = layers.Activation('relu')(add)
+    
+    psi = layers.Conv2D(1, (1, 1), strides=1, padding='same')(act)
+    sigmoid = layers.Activation('sigmoid')(psi)
+    
+    attention = layers.Multiply()([x_skip, sigmoid])
+    return attention
 
 def UNETR_2D(
             input_shape,
@@ -113,6 +132,7 @@ def UNETR_2D(
         z = layers.Reshape([ input_shape[0]//patch_size, input_shape[1]//patch_size, projection_dim ])( hidden_states_out[ (ViT_hidd_mult * layer) - 1 ] )
         for _ in range(total_upscale_factor - layer):
             z = mid_blue_block(z, num_filters * (2**layer), activation=decoder_activation, kernel_initializer=decoder_kernel_init, batch_norm=batch_norm, dropout=dropout[layer])
+        z = attention_gate(z, x, filters=num_filters * (2**layer))
         # decoder
         x = layers.concatenate([x, z])
         x = two_yellow(x, num_filters * (2**(layer)), activation=decoder_activation, kernel_initializer=decoder_kernel_init, batch_norm=batch_norm, dropout=dropout[layer])
