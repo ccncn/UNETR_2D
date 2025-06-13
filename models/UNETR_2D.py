@@ -7,23 +7,30 @@ from tensorflow.keras import Model, layers
 from .modules import *
 from tensorflow.keras import layers
 
-def attention_gate(x_skip, g_input, filters):
-    """
-    Attention Gate for UNet skip connection
-    - x_skip: skip connection from encoder
-    - g_input: gating signal from decoder (e.g., current upsampled output)
-    """
-    theta_x = layers.Conv2D(filters, (1, 1), strides=1, padding='same')(x_skip)
-    phi_g = layers.Conv2D(filters, (1, 1), strides=1, padding='same')(g_input)
-    
-    add = layers.Add()([theta_x, phi_g])
-    act = layers.Activation('relu')(add)
-    
-    psi = layers.Conv2D(1, (1, 1), strides=1, padding='same')(act)
-    sigmoid = layers.Activation('sigmoid')(psi)
-    
-    attention = layers.Multiply()([x_skip, sigmoid])
-    return attention
+def cbam_block(x, reduction=16):
+    # ----- Channel Attention -----
+    channel = x.shape[-1]
+    avg_pool = layers.GlobalAveragePooling2D()(x)
+    max_pool = layers.GlobalMaxPooling2D()(x)
+
+    shared_dense_one = layers.Dense(channel // reduction, activation='relu')
+    shared_dense_two = layers.Dense(channel)
+
+    avg_out = shared_dense_two(shared_dense_one(avg_pool))
+    max_out = shared_dense_two(shared_dense_one(max_pool))
+
+    channel_attention = layers.Activation('sigmoid')(layers.Add()([avg_out, max_out]))
+    channel_attention = layers.Reshape((1, 1, channel))(channel_attention)
+    x = layers.Multiply()([x, channel_attention])
+
+    # ----- Spatial Attention -----
+    avg_pool = layers.Lambda(lambda x: tf.reduce_mean(x, axis=-1, keepdims=True))(x)
+    max_pool = layers.Lambda(lambda x: tf.reduce_max(x, axis=-1, keepdims=True))(x)
+    concat = layers.Concatenate(axis=-1)([avg_pool, max_pool])
+
+    spatial_attention = layers.Conv2D(1, (7, 7), padding='same', activation='sigmoid')(concat)
+    x = layers.Multiply()([x, spatial_attention])
+    return x
 
 def UNETR_2D(
             input_shape,
@@ -132,9 +139,11 @@ def UNETR_2D(
         z = layers.Reshape([ input_shape[0]//patch_size, input_shape[1]//patch_size, projection_dim ])( hidden_states_out[ (ViT_hidd_mult * layer) - 1 ] )
         for _ in range(total_upscale_factor - layer):
             z = mid_blue_block(z, num_filters * (2**layer), activation=decoder_activation, kernel_initializer=decoder_kernel_init, batch_norm=batch_norm, dropout=dropout[layer])
-        z = attention_gate(z, x, filters=num_filters * (2**layer))
+    
         # decoder
         x = layers.concatenate([x, z])
+        x = cbam_block(x)
+
         x = two_yellow(x, num_filters * (2**(layer)), activation=decoder_activation, kernel_initializer=decoder_kernel_init, batch_norm=batch_norm, dropout=dropout[layer])
         x = up_green_block(x, num_filters * (2**(layer-1)))
 
