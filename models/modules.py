@@ -104,44 +104,76 @@ def up_green_block(x, filters, name=None):
     x = layers.Conv2DTranspose(filters, (2, 2), strides=(2, 2), padding='same', name=name) (x)
     return x
 
+# def mid_blue_block(x, filters, activation='relu', kernel_initializer='glorot_uniform', batch_norm=True, dropout=0.0):
+#     """
+#     This function takes in an input tensor and returns an output tensor after applying a transpose convolution which upscale x2 the spatial size, 
+#     and applies a convolutional layer.
+    
+#     Args:
+#       x: the input tensor
+#       filters: number of filters in the convolutional layers
+#       activation: The activation function to use. Defaults to relu
+#       kernel_initializer: Initializer for the convolutional kernel weights matrix (see initializers).
+#                           Defaults to glorot_uniform
+#       batch_norm: Whether to use batch normalization or not. Defaults to False
+#       dropout: The dropout rate.
+    
+#     Returns:
+#       The output of the last layer of the block.
+#     """
+#     x = up_green_block(x, filters)
+#     x = basic_yellow_block(x, filters, activation=activation, kernel_initializer=kernel_initializer, batch_norm=batch_norm, dropout=dropout)
+#     return x
+    
+# def two_yellow(x, filters, activation='relu', kernel_initializer='glorot_uniform', batch_norm=True, dropout=0.0):
+#     """
+#     This function takes in an input tensor, and returns an output tensor that is the result of
+#     applying two basic yellow blocks to the input tensor.
+    
+#     Args:
+#       x: the input tensor
+#       filters: number of filters in the convolutional layer
+#       activation: The activation function to use. Defaults to relu
+#       kernel_initializer: Initializer for the kernel weights matrix (see initializers). 
+#                           Defaults to glorot_uniform
+#       batch_norm: Whether to use batch normalization or not. Defaults to False
+#       dropout: The dropout rate.
+    
+#     Returns:
+#       The output of the second basic_yellow_block.
+#     """
+#     x = basic_yellow_block(x, filters, activation=activation, kernel_initializer=kernel_initializer, batch_norm=batch_norm, dropout=dropout)
+#     x = basic_yellow_block(x, filters, activation=activation, kernel_initializer=kernel_initializer, batch_norm=batch_norm, dropout=0.0)
+#     return x
 def mid_blue_block(x, filters, activation='relu', kernel_initializer='glorot_uniform', batch_norm=True, dropout=0.0):
     """
-    This function takes in an input tensor and returns an output tensor after applying a transpose convolution which upscale x2 the spatial size, 
-    and applies a convolutional layer.
-    
-    Args:
-      x: the input tensor
-      filters: number of filters in the convolutional layers
-      activation: The activation function to use. Defaults to relu
-      kernel_initializer: Initializer for the convolutional kernel weights matrix (see initializers).
-                          Defaults to glorot_uniform
-      batch_norm: Whether to use batch normalization or not. Defaults to False
-      dropout: The dropout rate.
-    
-    Returns:
-      The output of the last layer of the block.
+    Upsample followed by residual yellow block.
     """
     x = up_green_block(x, filters)
+    shortcut = x
     x = basic_yellow_block(x, filters, activation=activation, kernel_initializer=kernel_initializer, batch_norm=batch_norm, dropout=dropout)
+
+    if shortcut.shape[-1] != x.shape[-1]:
+        shortcut = layers.Conv2D(filters, (1, 1), padding='same')(shortcut)
+
+    x = layers.Add()([x, shortcut])
+    x = layers.Activation(activation)(x)
     return x
-    
+
 def two_yellow(x, filters, activation='relu', kernel_initializer='glorot_uniform', batch_norm=True, dropout=0.0):
     """
-    This function takes in an input tensor, and returns an output tensor that is the result of
-    applying two basic yellow blocks to the input tensor.
-    
-    Args:
-      x: the input tensor
-      filters: number of filters in the convolutional layer
-      activation: The activation function to use. Defaults to relu
-      kernel_initializer: Initializer for the kernel weights matrix (see initializers). 
-                          Defaults to glorot_uniform
-      batch_norm: Whether to use batch normalization or not. Defaults to False
-      dropout: The dropout rate.
-    
-    Returns:
-      The output of the second basic_yellow_block.
+    Residual version of two convolution blocks.
+    If input and output filters don't match, a 1x1 conv is applied to the shortcut.
     """
+    shortcut = x
     x = basic_yellow_block(x, filters, activation=activation, kernel_initializer=kernel_initializer, batch_norm=batch_norm, dropout=dropout)
     x = basic_yellow_block(x, filters, activation=activation, kernel_initializer=kernel_initializer, batch_norm=batch_norm, dropout=0.0)
+
+    # match shape for residual addition
+    if shortcut.shape[-1] != x.shape[-1]:
+        shortcut = layers.Conv2D(filters, (1, 1), padding='same')(shortcut)
+
+    x = layers.Add()([x, shortcut])
+    x = layers.Activation(activation)(x)
     return x
+
